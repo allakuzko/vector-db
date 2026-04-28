@@ -16,6 +16,12 @@ pub struct SearchResult {
     pub score: f32,
 }
 
+#[derive(Debug, Serialize)]
+pub struct DocumentInfo {
+    pub id: String,
+    pub text: String,
+}
+
 pub struct VectorStore {
     documents: HashMap<String, Document>,
 }
@@ -38,6 +44,25 @@ impl VectorStore {
         id
     }
 
+    pub fn delete(&mut self, id: &str) -> bool {
+        self.documents.remove(id).is_some()
+    }
+
+    pub fn list(&self) -> Vec<DocumentInfo> {
+        let mut docs: Vec<DocumentInfo> = self
+            .documents
+            .values()
+            .map(|doc| DocumentInfo {
+                id: doc.id.clone(),
+                text: doc.text.clone(),
+            })
+            .collect();
+
+        // Сортуємо за id для стабільного порядку
+        docs.sort_by(|a, b| a.id.cmp(&b.id));
+        docs
+    }
+
     pub fn search(&self, query_embedding: &[f32], top_k: usize) -> Vec<SearchResult> {
         let mut scores: Vec<(&Document, f32)> = self
             .documents
@@ -48,7 +73,6 @@ impl VectorStore {
             })
             .collect();
 
-        // Сортуємо за score від найбільшого
         scores.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
 
         scores

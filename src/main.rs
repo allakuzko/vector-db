@@ -2,9 +2,10 @@ mod store;
 mod embedder;
 
 use axum::{
+    extract::Path,
     http::StatusCode,
     response::{IntoResponse, Response},
-    routing::{get, post},
+    routing::{delete, get, post},
     Json, Router,
 };
 use serde::{Deserialize, Serialize};
@@ -12,7 +13,7 @@ use std::sync::{Arc, Mutex};
 use tracing::{error, info};
 
 use embedder::Embedder;
-use store::{SearchResult, VectorStore};
+use store::{DocumentInfo, SearchResult, VectorStore};
 
 // --- Помилки ---
 
@@ -65,6 +66,18 @@ struct SearchResponse {
 }
 
 #[derive(Serialize)]
+struct DocumentsResponse {
+    documents: Vec<DocumentInfo>,
+    total_docs: usize,
+}
+
+#[derive(Serialize)]
+struct DeleteResponse {
+    id: String,
+    message: String,
+}
+
+#[derive(Serialize)]
 struct HealthResponse {
     status: String,
     version: String,
@@ -96,6 +109,8 @@ async fn main() {
     let app = Router::new()
         .route("/insert", post(insert))
         .route("/search", post(search))
+        .route("/documents", get(documents))
+        .route("/delete/:id", delete(delete_doc))
         .route("/health", get(health))
         .with_state(state);
 
@@ -120,6 +135,44 @@ async fn health(
         version: env!("CARGO_PKG_VERSION").to_string(),
         total_docs,
     })
+}
+
+async fn documents(
+    axum::extract::State(state): axum::extract::State<Arc<AppState>>,
+) -> AppResult<DocumentsResponse> {
+    let store = state
+        .store
+        .lock()
+        .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+
+    let documents = store.list();
+    let total_docs = store.len();
+
+    info!(total_docs = %total_docs, "Documents listed");
+
+    Ok(Json(DocumentsResponse { documents, total_docs }))
+}
+
+async fn delete_doc(
+    axum::extract::State(state): axum::extract::State<Arc<AppState>>,
+    Path(id): Path<String>,
+) -> AppResult<DeleteResponse> {
+    let deleted = state
+        .store
+        .lock()
+        .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?
+        .delete(&id);
+
+    if !deleted {
+        return Err(AppError(anyhow::anyhow!("Document with id '{}' not found", id)));
+    }
+
+    info!(id = %id, "Document deleted");
+
+    Ok(Json(DeleteResponse {
+        id,
+        message: "Document deleted successfully".to_string(),
+    }))
 }
 
 async fn insert(
